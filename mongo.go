@@ -3,12 +3,16 @@ package mongo
 import (
 	"context"
 
+	"github.com/boxgo/box/minibox"
+	"github.com/boxgo/metrics"
 	"github.com/globalsign/mgo"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type (
 	// Mongo mongodb数据库
 	Mongo struct {
+		Metrics   bool    `config:"metrics" desc:"default is false"`
 		URI       string  `json:"uri"`
 		DB        string  `json:"db"`
 		PoolLimit uint    `json:"poolLimit"`
@@ -18,6 +22,7 @@ type (
 
 		name    string
 		session *mgo.Session
+		metrics *metrics.Metrics
 	}
 )
 
@@ -29,6 +34,11 @@ var (
 // Name mongodb config name
 func (m *Mongo) Name() string {
 	return m.name
+}
+
+// Exts app
+func (m *Mongo) Exts() []minibox.MiniBox {
+	return []minibox.MiniBox{m.metrics}
 }
 
 // ConfigWillLoad before load
@@ -49,10 +59,16 @@ func (m *Mongo) ConfigDidLoad(context.Context) {
 	if m.Prefetch <= 0 {
 		m.Prefetch = 0.20
 	}
+
+	if m.Metrics {
+		prometheus.MustRegister(NewMgoCollector(m.metrics.Namespace, m.metrics.Subsystem))
+	}
 }
 
 // Serve start
 func (m *Mongo) Serve(ctx context.Context) error {
+	m.GetSession()
+
 	return nil
 }
 
@@ -96,8 +112,16 @@ func (m *Mongo) GetDefaultDB() *mgo.Database {
 }
 
 // New mongodb
-func New(name string) *Mongo {
-	return &Mongo{
+func New(name string, ms ...*metrics.Metrics) *Mongo {
+	mg := &Mongo{
 		name: name,
 	}
+
+	if len(ms) == 0 {
+		mg.metrics = metrics.Default
+	} else {
+		mg.metrics = ms[0]
+	}
+
+	return mg
 }
