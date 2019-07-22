@@ -12,13 +12,13 @@ import (
 type (
 	// Mongo mongodb数据库
 	Mongo struct {
-		Metrics   bool    `config:"metrics" desc:"default is false"`
-		URI       string  `json:"uri"`
-		DB        string  `json:"db"`
-		PoolLimit uint    `json:"poolLimit"`
-		Batch     uint    `json:"batch"`
-		Prefetch  float64 `json:"prefetch"`
-		Mode      uint    `json:"mode"`
+		Metrics   bool    `config:"metrics" help:"default is false"`
+		URI       string  `config:"uri"`
+		DB        string  `config:"db"`
+		PoolLimit uint    `config:"poolLimit"`
+		Batch     uint    `config:"batch"`
+		Prefetch  float64 `config:"prefetch"`
+		Mode      uint    `config:"mode"`
 
 		name    string
 		session *mgo.Session
