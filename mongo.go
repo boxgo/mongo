@@ -2,27 +2,22 @@ package mongo
 
 import (
 	"context"
+	"fmt"
+	"time"
 
-	"github.com/boxgo/box/minibox"
-	"github.com/boxgo/metrics"
-	"github.com/globalsign/mgo"
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/boxgo/logger"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 type (
-	// Mongo mongodb数据库
+	// Mongo mongodb
 	Mongo struct {
-		Metrics   bool    `config:"metrics" help:"default is false"`
-		URI       string  `config:"uri"`
-		DB        string  `config:"db"`
-		PoolLimit uint    `config:"poolLimit"`
-		Batch     uint    `config:"batch"`
-		Prefetch  float64 `config:"prefetch"`
-		Mode      uint    `config:"mode"`
+		URI string `config:"uri"`
 
-		name    string
-		session *mgo.Session
-		metrics *metrics.Metrics
+		client *mongo.Client
+		name   string
 	}
 )
 
@@ -36,11 +31,6 @@ func (m *Mongo) Name() string {
 	return m.name
 }
 
-// Exts app
-func (m *Mongo) Exts() []minibox.MiniBox {
-	return []minibox.MiniBox{m.metrics}
-}
-
 // ConfigWillLoad before load
 func (m *Mongo) ConfigWillLoad(context.Context) {
 
@@ -48,79 +38,63 @@ func (m *Mongo) ConfigWillLoad(context.Context) {
 
 // ConfigDidLoad after load
 func (m *Mongo) ConfigDidLoad(context.Context) {
-	if m.PoolLimit == 0 {
-		m.PoolLimit = 200
-	}
-
-	if m.Batch == 0 {
-		m.Batch = 50
-	}
-
-	if m.Prefetch <= 0 {
-		m.Prefetch = 0.20
-	}
-
-	if m.Metrics {
-		prometheus.MustRegister(NewMgoCollector(m.metrics.Namespace, m.metrics.Subsystem))
-	}
-}
-
-// Serve start
-func (m *Mongo) Serve(ctx context.Context) error {
-	m.GetSession()
-
-	return nil
-}
-
-// Shutdown end
-func (m *Mongo) Shutdown(ctx context.Context) error {
-	if m.session != nil {
-		m.session.Close()
-	}
-
-	return nil
-}
-
-// GetSession get session
-func (m *Mongo) GetSession() *mgo.Session {
-	if m.session != nil {
-		return m.session
-	}
-
-	sess, err := mgo.Dial(m.URI)
+	client, err := mongo.NewClient(options.Client().ApplyURI(m.URI))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("NewClient mongodb [%s] error: %#v", m.URI, err))
 	}
 
-	m.session = sess
-	m.session.SetMode(mgo.Mode(m.Mode), true)
-	m.session.SetPoolLimit(200)
-	m.session.SetBatch(50)
-	m.session.SetPrefetch(0.20)
-
-	return m.session
+	m.client = client
 }
 
-// GetDB get selected db
-func (m *Mongo) GetDB(db string) *mgo.Database {
-	return m.GetSession().DB(db)
+// Serve Connect and ping to mongodb
+func (m *Mongo) Serve(ctx context.Context) error {
+	if m.client == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := m.client.Connect(ctx); err != nil {
+		return fmt.Errorf("Connect to mongodb [%s] error: %#v", m.URI, err)
+	}
+
+	if err := m.client.Ping(ctx, readpref.Primary()); err != nil {
+		return fmt.Errorf("Ping to mongodb [%s] error: %#v", m.URI, err)
+	}
+
+	logger.Infof("Connect to mongodb [%s] success", m.URI)
+
+	return nil
 }
 
-// GetDefaultDB get default db
-func (m *Mongo) GetDefaultDB() *mgo.Database {
-	return m.GetSession().DB(m.DB)
+// Shutdown Disconnect to mongodb
+func (m *Mongo) Shutdown(ctx context.Context) error {
+	if m.client == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := m.client.Disconnect(ctx); err != nil {
+		panic(fmt.Sprintf("Disconnect to mongodb [%s] error: %#v", m.URI, err))
+	}
+
+	logger.Infof("Disconnect to mongodb [%s] success", m.URI)
+
+	return nil
 }
 
-// New mongodb
-func New(name string, ms ...*metrics.Metrics) *Mongo {
+// Client Get mongodb client
+func (m *Mongo) Client() *mongo.Client {
+	return m.client
+}
+
+// New mongodb instance
+func New(name string) *Mongo {
 	mg := &Mongo{
 		name: name,
-	}
-
-	if len(ms) == 0 {
-		mg.metrics = metrics.Default
-	} else {
-		mg.metrics = ms[0]
 	}
 
 	return mg
